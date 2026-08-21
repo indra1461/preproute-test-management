@@ -21,6 +21,7 @@ export default function LoginPage() {
   const {
     register,
     handleSubmit,
+    resetField,
     formState: { errors },
   } = useForm<LoginFormValues>({ resolver: zodResolver(loginSchema) });
 
@@ -35,6 +36,8 @@ export default function LoginPage() {
           "Login failed. Please check your User ID and password and try again.",
         ),
       );
+      resetField("userId");
+      resetField("password");
     }
   };
 

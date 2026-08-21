@@ -15,6 +15,7 @@ import {
   useGetSubTopicsByTopicQuery,
   useGetSubTopicsByTopicsQuery,
 } from "@/api/subTopicsApi";
+import type { TestStatus } from "@/types";
 import { getErrorMessage } from "@/lib/utils";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -178,8 +179,8 @@ export default function CreateEditTestPage() {
     setValue,
   ]);
 
-  const saveTest = async (values: TestFormOutput, status?: "draft") => {
-    const payload = { ...values, ...(status ? { status } : {}) };
+  const saveTest = async (values: TestFormOutput, status: TestStatus = "draft") => {
+    const payload = { ...values, status };
 
     if (isEditMode && testId) {
       await updateTest({ id: testId, body: payload }).unwrap();
