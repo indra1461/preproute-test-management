@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useNavigate, useParams } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
 import toast from "react-hot-toast";
-import { useGetTestByIdQuery } from "@/api/testsApi";
-import { useBulkCreateQuestionsMutation } from "@/api/questionsApi";
+import { useGetTestByIdQuery, useUpdateTestMutation } from "@/api/testsApi";
+import {
+  useBulkCreateQuestionsMutation,
+  useFetchBulkQuestionsQuery,
+} from "@/api/questionsApi";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -26,6 +29,9 @@ const questionSchema = z.object({
 });
 
 type QuestionFormValues = z.infer<typeof questionSchema>;
+// "id" hai to matlab ye question pehle se server pe saved hai (read-only);
+// nahi hai to ye is session me naya bana hai (editable)
+type QuestionItem = QuestionFormValues & { id?: string };
 
 const emptyQuestion: QuestionFormValues = {
   question: "",
@@ -43,11 +49,47 @@ export default function AddQuestionsPage() {
   const { id: testId } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: test } = useGetTestByIdQuery(testId ?? "", { skip: !testId });
+
+  // Test ke saath pehle se jude questions (agar hai) — sirf IDs milte hai
+  // GET /tests/:id se, isliye fetchBulk se poora data nikal rahe hai
+  const { data: existingQuestions } = useFetchBulkQuestionsQuery(
+    test?.questions ?? [],
+    {
+      skip: !test?.questions?.length,
+    },
+  );
+
   const [bulkCreateQuestions, { isLoading: isSaving }] =
     useBulkCreateQuestionsMutation();
+  const [updateTest] = useUpdateTestMutation();
 
-  const [questions, setQuestions] = useState<QuestionFormValues[]>([]);
+  const [questions, setQuestions] = useState<QuestionItem[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [hasLoadedExisting, setHasLoadedExisting] = useState(false);
+
+  // Existing questions ko form-shape me convert karke ek hi baar list me
+  // daal do. "hasLoadedExisting" guard isliye — warna agar ye query kabhi
+  // dobara refetch ho (RTK Query cache invalidate hone pe), to user ke
+  // abhi-abhi add kiye naye questions overwrite ho jayenge
+  useEffect(() => {
+    if (existingQuestions && !hasLoadedExisting) {
+      setQuestions(
+        existingQuestions.map((q) => ({
+          id: q.id,
+          question: q.question,
+          option1: q.option1,
+          option2: q.option2,
+          option3: q.option3,
+          option4: q.option4,
+          correct_option: q.correct_option,
+          explanation: q.explanation ?? "",
+          difficulty: q.difficulty,
+          media_url: q.media_url ?? "",
+        })),
+      );
+      setHasLoadedExisting(true);
+    }
+  }, [existingQuestions, hasLoadedExisting]);
 
   const {
     register,
@@ -91,15 +133,38 @@ export default function AddQuestionsPage() {
     }
     if (!testId) return;
 
-    const payload: CreateQuestionPayload[] = questions.map((q) => ({
-      type: "mcq",
-      test_id: testId,
-      subject: test?.subject ?? "",
-      ...q,
-    }));
+    const newQuestions = questions.filter((q) => !q.id);
+
+    if (newQuestions.length === 0) {
+      navigate(`/tests/${testId}/preview`);
+      return;
+    }
+
+    const payload: CreateQuestionPayload[] = newQuestions.map(
+      ({ id, ...q }) => ({
+        type: "mcq",
+        test_id: testId,
+        subject: test?.subject ?? "",
+        ...q,
+      }),
+    );
 
     try {
-      await bulkCreateQuestions(payload).unwrap();
+      // Step 1: naye questions create karo — server unki id return karta hai
+      const created = await bulkCreateQuestions(payload).unwrap();
+
+      // Step 2: test ke "questions" array me purani + nayi IDs jodke,
+      // explicitly link karo — YE MISSING STEP THA
+      const existingIds = test?.questions ?? [];
+      const newIds = created.map((q) => q.id);
+      await updateTest({
+        id: testId,
+        body: {
+          questions: [...existingIds, ...newIds],
+          total_questions: existingIds.length + newIds.length,
+        },
+      }).unwrap();
+
       toast.success("Questions saved!");
       navigate(`/tests/${testId}/preview`);
     } catch (err) {
@@ -200,22 +265,26 @@ export default function AddQuestionsPage() {
                 <span className="line-clamp-1 text-sm text-ink-700">
                   {index + 1}. {q.question}
                 </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleEdit(index)}
-                    className="rounded-lg p-2 text-ink-500 hover:bg-line-100"
-                  >
-                    <Pencil size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(index)}
-                    className="rounded-lg p-2 text-danger-500 hover:bg-danger-50"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
+                {q.id ? (
+                  <span className="text-xs text-ink-300">Saved</span>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(index)}
+                      className="rounded-lg p-2 text-ink-500 hover:bg-line-100"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(index)}
+                      className="rounded-lg p-2 text-danger-500 hover:bg-danger-50"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

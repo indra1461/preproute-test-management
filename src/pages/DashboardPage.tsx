@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+
 import {
   createColumnHelper,
   flexRender,
@@ -11,6 +12,8 @@ import { useGetTestsQuery, useDeleteTestMutation } from "@/api/testsApi";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import type { Test } from "@/types";
+import toast from "react-hot-toast";
+import { getErrorMessage } from "@/lib/utils";
 
 const columnHelper = createColumnHelper<Test>();
 
@@ -39,8 +42,11 @@ export default function DashboardPage() {
     if (!confirmed) return;
     try {
       await deleteTest(id).unwrap();
-    } catch {
-      alert("Could not delete the test. Please try again.");
+      toast.success("Test deleted.");
+    } catch (err) {
+      toast.error(
+        getErrorMessage(err, "Could not delete the test. Please try again."),
+      );
     }
   };
 

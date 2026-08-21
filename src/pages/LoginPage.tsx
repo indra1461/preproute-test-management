@@ -2,9 +2,11 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 import { useLoginMutation } from "@/api/authApi";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { getErrorMessage } from "@/lib/utils";
 
 const loginSchema = z.object({
   userId: z.string().min(1, "User ID is required"),
@@ -15,8 +17,7 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const [login, { isLoading, error }] = useLoginMutation();
-
+  const [login, { isLoading }] = useLoginMutation();
   const {
     register,
     handleSubmit,
@@ -25,10 +26,15 @@ export default function LoginPage() {
 
   const onSubmit = async (values: LoginFormValues) => {
     try {
-      await login(values).unwrap(); // .unwrap() se agar error aaye to catch block chalega
+      await login(values).unwrap();
       navigate("/dashboard", { replace: true });
-    } catch (e) {
-      console.error(e);
+    } catch (err) {
+      toast.error(
+        getErrorMessage(
+          err,
+          "Login failed. Please check your User ID and password and try again.",
+        ),
+      );
     }
   };
 
@@ -68,13 +74,6 @@ export default function LoginPage() {
               error={errors.password?.message}
               {...register("password")}
             />
-
-            {error && (
-              <p className="text-sm text-danger-500">
-                Login failed. Please check your User ID and password and try
-                again.
-              </p>
-            )}
 
             <Button type="submit" isLoading={isLoading} className="mt-2 w-full">
               Login

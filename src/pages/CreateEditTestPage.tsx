@@ -1,24 +1,25 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { useNavigate, useParams } from "react-router-dom";
+import toast from "react-hot-toast";
+import {
+  useGetTestByIdQuery,
+  useCreateTestMutation,
+  useUpdateTestMutation,
+} from "@/api/testsApi";
 import { useGetSubjectsQuery } from "@/api/subjectsApi";
 import { useGetTopicsBySubjectQuery } from "@/api/topicsApi";
 import {
   useGetSubTopicsByTopicQuery,
   useGetSubTopicsByTopicsQuery,
 } from "@/api/subTopicsApi";
-import {
-  useCreateTestMutation,
-  useGetTestByIdQuery,
-  useUpdateTestMutation,
-} from "@/api/testsApi";
-import { Button } from "@/components/ui/Button";
+import { getErrorMessage } from "@/lib/utils";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { MultiSelect } from "@/components/ui/MultiSelect";
-import { getErrorMessage } from "@/lib/utils";
+import { Button } from "@/components/ui/Button";
 
 const testFormSchema = z.object({
   type: z.enum(["chapterwise", "pyq", "mock"]),
@@ -38,32 +39,14 @@ const testFormSchema = z.object({
 type TestFormInput = z.input<typeof testFormSchema>;
 type TestFormOutput = z.output<typeof testFormSchema>;
 
-const typeTabs: { value: TestFormInput["type"]; label: string }[] = [
-  { value: "chapterwise", label: "Chapter Wise" },
-  { value: "pyq", label: "PYQ" },
-  { value: "mock", label: "Mock Test" },
-];
-
-const difficultyOptions: {
-  value: TestFormInput["difficulty"];
-  label: string;
-}[] = [
-  { value: "easy", label: "Easy" },
-  { value: "medium", label: "Medium" },
-  { value: "difficult", label: "Difficult" },
-];
-
 export default function CreateEditTestPage() {
-  const navigate = useNavigate();
   const { id: testId } = useParams<{ id: string }>();
   const isEditMode = Boolean(testId);
+  const navigate = useNavigate();
 
-  const { data: subjects } = useGetSubjectsQuery();
-  const { data: existingTest, isLoading: isLoadingTest } = useGetTestByIdQuery(
-    testId ?? "",
-    { skip: !testId },
-  );
-
+  const { data: existingTest } = useGetTestByIdQuery(testId ?? "", {
+    skip: !isEditMode,
+  });
   const [createTest, { isLoading: isCreating }] = useCreateTestMutation();
   const [updateTest, { isLoading: isUpdating }] = useUpdateTestMutation();
   const isSaving = isCreating || isUpdating;
@@ -80,20 +63,24 @@ export default function CreateEditTestPage() {
     resolver: zodResolver(testFormSchema),
     defaultValues: {
       type: "chapterwise",
-      difficulty: "easy",
-      wrong_marks: -1,
-      unattempt_marks: 0,
-      correct_marks: 5,
+      name: "",
+      subject: "",
       topics: [],
       sub_topics: [],
+      difficulty: "easy",
+      total_time: 0,
+      correct_marks: 0,
+      wrong_marks: 0,
+      unattempt_marks: 0,
+      total_questions: 0,
+      total_marks: 0,
     },
   });
 
-  const selectedType = watch("type");
   const selectedSubject = watch("subject");
-  const selectedTopics = watch("topics");
+  const selectedTopics = watch("topics") ?? [];
 
-  // Cascading calls — 'skip' se batate hai "jab tak ID na ho, call mat karo"
+  const { data: subjects } = useGetSubjectsQuery();
   const { data: topics } = useGetTopicsBySubjectQuery(selectedSubject, {
     skip: !selectedSubject,
   });
@@ -116,15 +103,22 @@ export default function CreateEditTestPage() {
         ? subTopicsMulti
         : [];
 
-  // Edit mode: jab existing test data aa jaye, form ko usse pre-fill karo
+  // ---- Edit-mode prefill: 3-stage chain ----
+  // Stage 1: basic fields + subject. GET /tests/:id returns `subject` as a NAME, but our
+  // <select> stores it by ID, so we look up the matching subject's ID from the already-
+  // loaded `subjects` list. topics/sub_topics start empty — their option lists don't
+  // exist yet, since they only fetch once `selectedSubject` is set.
   useEffect(() => {
-    if (existingTest) {
+    if (existingTest && subjects) {
+      const matchedSubject = subjects.find(
+        (s) => s.name === existingTest.subject,
+      );
       reset({
         type: existingTest.type,
         name: existingTest.name,
-        subject: existingTest.subject,
-        topics: existingTest.topics,
-        sub_topics: existingTest.sub_topics ?? [],
+        subject: matchedSubject?.id ?? "",
+        topics: [],
+        sub_topics: [],
         difficulty: existingTest.difficulty,
         total_time: existingTest.total_time,
         correct_marks: existingTest.correct_marks,
@@ -134,65 +128,126 @@ export default function CreateEditTestPage() {
         total_marks: existingTest.total_marks,
       });
     }
-  }, [existingTest, reset]);
+  }, [existingTest, subjects, reset]);
 
-  const saveTest = async (data: TestFormOutput) => {
-    if (isEditMode && testId) {
-      return await updateTest({ id: testId, body: data }).unwrap();
+  const [hasPrefilledTopics, setHasPrefilledTopics] = useState(false);
+  const [hasPrefilledSubTopics, setHasPrefilledSubTopics] = useState(false);
+
+  // Stage 2: once the topics list for the resolved subject arrives, match
+  // existingTest.topics against it (checking both id and name, since we're not fully
+  // sure which one the backend sends) and set the real IDs on the form.
+  useEffect(() => {
+    if (existingTest && topics && topics.length > 0 && !hasPrefilledTopics) {
+      const matchedTopicIds = existingTest.topics
+        .map(
+          (value) => topics.find((t) => t.id === value || t.name === value)?.id,
+        )
+        .filter((id): id is string => Boolean(id));
+
+      if (matchedTopicIds.length > 0) {
+        setValue("topics", matchedTopicIds);
+      }
+      setHasPrefilledTopics(true); // run once — don't fight the user's manual edits later
     }
-    return await createTest({ ...data, status: "draft" }).unwrap();
+  }, [existingTest, topics, hasPrefilledTopics, setValue]);
+
+  // Stage 3: once sub-topics for the resolved topics arrive, same matching pattern.
+  useEffect(() => {
+    if (
+      existingTest &&
+      hasPrefilledTopics &&
+      subTopics &&
+      subTopics.length > 0 &&
+      !hasPrefilledSubTopics
+    ) {
+      const matchedSubTopicIds = (existingTest.sub_topics ?? [])
+        .map(
+          (value) =>
+            subTopics.find((st) => st.id === value || st.name === value)?.id,
+        )
+        .filter((id): id is string => Boolean(id));
+
+      setValue("sub_topics", matchedSubTopicIds);
+      setHasPrefilledSubTopics(true);
+    }
+  }, [
+    existingTest,
+    subTopics,
+    hasPrefilledTopics,
+    hasPrefilledSubTopics,
+    setValue,
+  ]);
+
+  const saveTest = async (values: TestFormOutput, status?: "draft") => {
+    const payload = { ...values, ...(status ? { status } : {}) };
+
+    if (isEditMode && testId) {
+      await updateTest({ id: testId, body: payload }).unwrap();
+      return testId;
+    }
+    const created = await createTest(payload).unwrap();
+    return created.id;
   };
 
-  const onSaveDraft = handleSubmit(async (data) => {
-    await saveTest(data);
-    navigate("/dashboard");
+  const onSaveDraft = handleSubmit(async (values) => {
+    try {
+      await saveTest(values, "draft");
+      toast.success("Draft saved.");
+      navigate("/dashboard");
+    } catch (err) {
+      toast.error(
+        getErrorMessage(err, "Could not save draft. Please try again."),
+      );
+    }
   });
 
-  const onNext = handleSubmit(async (data) => {
-    const test = await saveTest(data);
-    navigate(`/tests/${test.id}/questions`);
+  const onNext = handleSubmit(async (values) => {
+    try {
+      const id = await saveTest(values);
+      toast.success("Test details saved.");
+      navigate(`/tests/${id}/questions`);
+    } catch (err) {
+      toast.error(
+        getErrorMessage(err, "Could not save test details. Please try again."),
+      );
+    }
   });
-
-  if (isEditMode && isLoadingTest) {
-    return <p className="text-sm text-ink-500">Loading test…</p>;
-  }
 
   return (
-    <div className="mx-auto max-w-4xl rounded-xl border border-line-200 bg-white p-6">
-      <h1 className="text-lg font-semibold text-ink-900">Test creation</h1>
+    <div className="max-w-3xl">
+      <h1 className="text-xl font-semibold text-ink-900">
+        {isEditMode ? "Edit Test" : "Create Test"}
+      </h1>
 
-      <div className="mt-4 inline-flex rounded-lg bg-line-100 p-1">
-        {typeTabs.map((tab) => (
-          <button
-            key={tab.value}
-            type="button"
-            onClick={() => setValue("type", tab.value)}
-            className={getErrorMessage(
-              "rounded-md px-4 py-2 text-sm font-medium transition-colors",
-              selectedType === tab.value
-                ? "bg-white text-brand-600 shadow-sm"
-                : "text-ink-500",
-            )}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <form className="mt-6 flex flex-col gap-4">
+        <Select
+          label="Test Type"
+          error={errors.type?.message}
+          {...register("type")}
+        >
+          <option value="chapterwise">Chapterwise</option>
+          <option value="pyq">PYQ</option>
+          <option value="mock">Mock</option>
+        </Select>
 
-      <div className="mt-6 grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+        <Input
+          label="Test Name"
+          placeholder="Enter test name"
+          error={errors.name?.message}
+          {...register("name")}
+        />
+
         <Select
           label="Subject"
           error={errors.subject?.message}
           {...register("subject", {
-            // Subject badalte hi purane Topics/Sub-topics clear kar do —
-            // ye sirf ASLI user interaction pe chalta hai, form.reset() pe nahi
             onChange: () => {
               setValue("topics", []);
               setValue("sub_topics", []);
             },
           })}
         >
-          <option value="">Choose from Drop-down</option>
+          <option value="">Select subject</option>
           {subjects?.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
@@ -200,27 +255,20 @@ export default function CreateEditTestPage() {
           ))}
         </Select>
 
-        <Input
-          label="Name of Test"
-          placeholder="Enter name of Test"
-          error={errors.name?.message}
-          {...register("name")}
-        />
-
         <Controller
           name="topics"
           control={control}
           render={({ field }) => (
             <MultiSelect
-              label="Topic"
+              label="Topics"
               options={topics ?? []}
-              value={field.value}
-              disabled={!selectedSubject}
-              error={errors.topics?.message}
+              value={field.value ?? []}
               onChange={(next) => {
                 field.onChange(next);
-                setValue("sub_topics", []); // topics badle to sub-topics bhi reset
+                setValue("sub_topics", []);
               }}
+              error={errors.topics?.message}
+              disabled={!selectedSubject}
             />
           )}
         />
@@ -230,91 +278,66 @@ export default function CreateEditTestPage() {
           control={control}
           render={({ field }) => (
             <MultiSelect
-              label="Sub Topic"
+              label="Sub-topics"
               options={subTopics ?? []}
               value={field.value ?? []}
-              disabled={selectedTopics.length === 0}
               onChange={field.onChange}
+              error={errors.sub_topics?.message}
+              disabled={selectedTopics.length === 0}
             />
           )}
         />
 
-        <Input
-          label="Duration (Minutes)"
-          type="number"
-          placeholder="Enter the time"
-          error={errors.total_time?.message}
-          {...register("total_time")}
-        />
+        <Select
+          label="Difficulty"
+          error={errors.difficulty?.message}
+          {...register("difficulty")}
+        >
+          <option value="easy">Easy</option>
+          <option value="medium">Medium</option>
+          <option value="difficult">Difficult</option>
+        </Select>
 
-        <div>
-          <p className="text-sm font-medium text-ink-700">
-            Test Difficulty Level
-          </p>
-          <div className="mt-2 flex gap-6">
-            {difficultyOptions.map((opt) => (
-              <label
-                key={opt.value}
-                className="flex items-center gap-2 text-sm text-ink-700"
-              >
-                <input
-                  type="radio"
-                  value={opt.value}
-                  {...register("difficulty")}
-                  className="accent-brand-500"
-                />
-                {opt.label}
-              </label>
-            ))}
-          </div>
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            label="Duration (minutes)"
+            type="number"
+            error={errors.total_time?.message}
+            {...register("total_time")}
+          />
+          <Input
+            label="Number of Questions"
+            type="number"
+            error={errors.total_questions?.message}
+            {...register("total_questions")}
+          />
+          <Input
+            label="Correct Marks"
+            type="number"
+            error={errors.correct_marks?.message}
+            {...register("correct_marks")}
+          />
+          <Input
+            label="Wrong Marks"
+            type="number"
+            error={errors.wrong_marks?.message}
+            {...register("wrong_marks")}
+          />
+          <Input
+            label="Unattempt Marks"
+            type="number"
+            error={errors.unattempt_marks?.message}
+            {...register("unattempt_marks")}
+          />
+          <Input
+            label="Total Marks"
+            type="number"
+            error={errors.total_marks?.message}
+            {...register("total_marks")}
+          />
         </div>
 
-        <div className="md:col-span-2">
-          <p className="mb-2 text-sm font-medium text-ink-700">
-            Marking Scheme:
-          </p>
-          <div className="grid grid-cols-3 gap-4">
-            <Input
-              label="Wrong Answer"
-              type="number"
-              {...register("wrong_marks")}
-            />
-            <Input
-              label="Unattempted"
-              type="number"
-              {...register("unattempt_marks")}
-            />
-            <Input
-              label="Correct Answer"
-              type="number"
-              {...register("correct_marks")}
-            />
-          </div>
-        </div>
-
-        <Input
-          label="No of Questions"
-          type="number"
-          placeholder="Ex: 50"
-          error={errors.total_questions?.message}
-          {...register("total_questions")}
-        />
-        <Input
-          label="Total Marks"
-          type="number"
-          placeholder="Ex: 250"
-          error={errors.total_marks?.message}
-          {...register("total_marks")}
-        />
-
-        <div className="mt-2 flex justify-end gap-3 md:col-span-2">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => navigate("/dashboard")}
-          >
-            Cancel
-          </Button>
+        <div className="mt-4 flex gap-3">
           <Button
             type="button"
             variant="secondary"
@@ -324,10 +347,10 @@ export default function CreateEditTestPage() {
             Save as Draft
           </Button>
           <Button type="button" isLoading={isSaving} onClick={onNext}>
-            Next: Add Questions
+            Save & Next
           </Button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
