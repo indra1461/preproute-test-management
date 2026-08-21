@@ -11,6 +11,7 @@ import { Plus, Pencil, Eye, Trash2 } from "lucide-react";
 import { useGetTestsQuery, useDeleteTestMutation } from "@/api/testsApi";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import type { Test } from "@/types";
 import toast from "react-hot-toast";
 import { getErrorMessage } from "@/lib/utils";
@@ -26,6 +27,8 @@ export default function DashboardPage() {
   const { data: tests, isLoading, isError } = useGetTestsQuery();
   const [deleteTest] = useDeleteTestMutation();
   const [search, setSearch] = useState("");
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const navigate = useNavigate();
 
   const filteredTests = useMemo(() => {
@@ -35,18 +38,19 @@ export default function DashboardPage() {
     );
   }, [tests, search]);
 
-  const handleDelete = async (id: string) => {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this test?",
-    );
-    if (!confirmed) return;
+  const handleDeleteConfirm = async () => {
+    if (!deleteTargetId) return;
+    setIsDeleting(true);
     try {
-      await deleteTest(id).unwrap();
+      await deleteTest(deleteTargetId).unwrap();
       toast.success("Test deleted.");
+      setDeleteTargetId(null);
     } catch (err) {
       toast.error(
         getErrorMessage(err, "Could not delete the test. Please try again."),
       );
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -102,7 +106,7 @@ export default function DashboardPage() {
               </Link>
               <button
                 type="button"
-                onClick={() => handleDelete(test.id)}
+                onClick={() => setDeleteTargetId(test.id)}
                 className="rounded-lg p-2 text-danger-500 hover:bg-danger-50"
                 aria-label="Delete"
               >
@@ -198,6 +202,17 @@ export default function DashboardPage() {
           </table>
         )}
       </div>
+
+      <ConfirmModal
+        open={deleteTargetId !== null}
+        title="Delete this test?"
+        description="This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        isLoading={isDeleting}
+        onConfirm={handleDeleteConfirm}
+        onCancel={() => setDeleteTargetId(null)}
+      />
     </div>
   );
 }
