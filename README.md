@@ -2,6 +2,9 @@
 
 An admin panel for creating and publishing tests (chapterwise / PYQ / mock) — cascading subject → topic → sub-topic selection, a marking scheme, bulk question authoring, and a preview-before-publish flow.
 
+- **Live app**: https://preproute-test-management-pink.vercel.app/login
+- **GitHub repo**: https://github.com/indra1461/preproute-test-management
+
 ## Tech Stack
 
 - **React 19** + **TypeScript** + **Vite** — app shell and dev/build tooling
