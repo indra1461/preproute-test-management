@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { MultiSelect } from "@/components/ui/MultiSelect";
-import { cn } from "@/lib/utils";
+import { getErrorMessage } from "@/lib/utils";
 
 const testFormSchema = z.object({
   type: z.enum(["chapterwise", "pyq", "mock"]),
@@ -140,7 +140,7 @@ export default function CreateEditTestPage() {
     if (isEditMode && testId) {
       return await updateTest({ id: testId, body: data }).unwrap();
     }
-    return await createTest({ ...data, status: null }).unwrap();
+    return await createTest({ ...data, status: "draft" }).unwrap();
   };
 
   const onSaveDraft = handleSubmit(async (data) => {
@@ -167,7 +167,7 @@ export default function CreateEditTestPage() {
             key={tab.value}
             type="button"
             onClick={() => setValue("type", tab.value)}
-            className={cn(
+            className={getErrorMessage(
               "rounded-md px-4 py-2 text-sm font-medium transition-colors",
               selectedType === tab.value
                 ? "bg-white text-brand-600 shadow-sm"
