@@ -50,8 +50,8 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
           open ? "translate-x-0" : "-translate-x-full",
         )}
       >
-        <div className="mb-8 px-2 text-lg font-semibold text-brand-600">
-          PrepRoute
+        <div className="mb-8 px-2">
+          <img src="/img/logo.png" alt="PrepRoute" className="h-7 w-auto" />
         </div>
         <nav className="flex flex-col gap-1">
           {navItems.map(({ to, label, icon: Icon }) => (

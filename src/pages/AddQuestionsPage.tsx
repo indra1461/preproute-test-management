@@ -10,6 +10,9 @@ import {
   useBulkCreateQuestionsMutation,
   useFetchBulkQuestionsQuery,
 } from "@/api/questionsApi";
+import { useGetSubjectsQuery } from "@/api/subjectsApi";
+import { useGetTopicsBySubjectQuery } from "@/api/topicsApi";
+import { useGetSubTopicsByTopicQuery } from "@/api/subTopicsApi";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -26,6 +29,8 @@ const questionSchema = z.object({
   explanation: z.string().optional(),
   difficulty: z.enum(["easy", "medium", "difficult"]).optional(),
   media_url: z.string().optional(),
+  topic: z.string().optional(),
+  sub_topic: z.string().optional(),
 });
 
 type QuestionFormValues = z.infer<typeof questionSchema>;
@@ -43,6 +48,8 @@ const emptyQuestion: QuestionFormValues = {
   explanation: "",
   difficulty: undefined,
   media_url: "",
+  topic: "",
+  sub_topic: "",
 };
 
 export default function AddQuestionsPage() {
@@ -62,6 +69,15 @@ export default function AddQuestionsPage() {
   const [bulkCreateQuestions, { isLoading: isSaving }] =
     useBulkCreateQuestionsMutation();
   const [updateTest] = useUpdateTestMutation();
+
+  // Per-question Topic/Sub-topic dropdowns — options scoped to the test's
+  // subject, same lookup chain CreateEditTestPage uses (GET /tests/:id
+  // returns `subject` as a NAME, but the topics endpoint wants an ID)
+  const { data: subjects } = useGetSubjectsQuery();
+  const subjectId = subjects?.find((s) => s.name === test?.subject)?.id;
+  const { data: topics } = useGetTopicsBySubjectQuery(subjectId ?? "", {
+    skip: !subjectId,
+  });
 
   const [questions, setQuestions] = useState<QuestionItem[]>([]);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -85,6 +101,8 @@ export default function AddQuestionsPage() {
           explanation: q.explanation ?? "",
           difficulty: q.difficulty,
           media_url: q.media_url ?? "",
+          topic: q.topic ?? "",
+          sub_topic: q.sub_topic ?? "",
         })),
       );
       setHasLoadedExisting(true);
@@ -95,11 +113,19 @@ export default function AddQuestionsPage() {
     register,
     handleSubmit,
     reset,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<QuestionFormValues>({
     resolver: zodResolver(questionSchema),
     defaultValues: emptyQuestion,
   });
+
+  const selectedTopic = watch("topic");
+  const { data: subTopics } = useGetSubTopicsByTopicQuery(
+    selectedTopic ?? "",
+    { skip: !selectedTopic },
+  );
 
   const onAddQuestion = handleSubmit((values) => {
     if (editingIndex !== null) {
@@ -238,6 +264,34 @@ export default function AddQuestionsPage() {
               placeholder="https://..."
               {...register("media_url")}
             />
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <Select
+              label="Topic (optional)"
+              {...register("topic", {
+                onChange: () => setValue("sub_topic", ""),
+              })}
+            >
+              <option value="">Select topic</option>
+              {topics?.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="Sub-topic (optional)"
+              disabled={!selectedTopic}
+              {...register("sub_topic")}
+            >
+              <option value="">Select sub-topic</option>
+              {subTopics?.map((st) => (
+                <option key={st.id} value={st.id}>
+                  {st.name}
+                </option>
+              ))}
+            </Select>
           </div>
 
           <Button

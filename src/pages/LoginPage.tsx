@@ -53,7 +53,7 @@ export default function LoginPage() {
 
       <div className="flex items-center justify-center px-6 py-12">
         <div className="w-full max-w-sm">
-          <h1 className="text-xl font-semibold text-brand-600">PrepRoute</h1>
+          <img src="/img/logo.png" alt="PrepRoute" className="h-8 w-auto" />
           <h2 className="mt-6 text-2xl font-semibold text-ink-900">Login</h2>
           <p className="mt-1 text-sm text-ink-500">
             Use your company provided Login credentials
@@ -77,6 +77,18 @@ export default function LoginPage() {
               error={errors.password?.message}
               {...register("password")}
             />
+
+            <button
+              type="button"
+              onClick={() =>
+                toast(
+                  "Please contact your administrator to reset your password.",
+                )
+              }
+              className="self-end text-sm font-medium text-brand-600 hover:underline"
+            >
+              Forgot password?
+            </button>
 
             <Button type="submit" isLoading={isLoading} className="mt-2 w-full">
               Login
