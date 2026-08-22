@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { useNavigate, useParams } from "react-router-dom";
 import Papa from "papaparse";
 import {
   BarChart3,
+  Bold,
   Check,
   Clock,
   Download,
   FileQuestion,
+  Italic,
   Pencil,
   Trash2,
+  Underline,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useGetTestByIdQuery, useUpdateTestMutation } from "@/api/testsApi";
@@ -37,8 +40,22 @@ const difficultyBadgeStyles: Record<string, string> = {
   difficult: "bg-danger-50 text-danger-500",
 };
 
+// The question field's contentEditable can hold HTML with no visible
+// characters (e.g. "<br>" or "<div><br></div>" left behind after the user
+// deletes everything) — strip tags/&nbsp; before checking for real content.
+function isRichTextEmpty(html: string): boolean {
+  return (
+    html
+      .replace(/<[^>]*>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .trim().length === 0
+  );
+}
+
 const questionSchema = z.object({
-  question: z.string().min(1, "Question text is required"),
+  question: z
+    .string()
+    .refine((val) => !isRichTextEmpty(val), "Question text is required"),
   option1: z.string().min(1, "Required"),
   option2: z.string().min(1, "Required"),
   option3: z.string().min(1, "Required"),
@@ -123,6 +140,90 @@ const SAMPLE_CSV_CONTENT =
   "question,option1,option2,option3,option4,correct_option,explanation,difficulty,topic,sub_topic\n" +
   '"What is the capital of France?","London","Paris","Berlin","Madrid","option2","Paris is the capital of France.","easy","",""\n';
 
+interface RichTextEditorProps {
+  value: string;
+  onChange: (html: string) => void;
+  placeholder?: string;
+  error?: string;
+}
+
+// Basic Bold/Italic/Underline editor over a contentEditable div — no
+// external library, since that's overkill for 3 formatting commands.
+// `value`/`onChange` carry the div's innerHTML as the field value; the DOM
+// is only re-synced from `value` when the editor isn't focused, so typing
+// doesn't get clobbered by our own re-render.
+function RichTextEditor({
+  value,
+  onChange,
+  placeholder,
+  error,
+}: RichTextEditorProps) {
+  const editorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = editorRef.current;
+    if (el && document.activeElement !== el && el.innerHTML !== value) {
+      el.innerHTML = value;
+    }
+  }, [value]);
+
+  const applyFormat = (command: "bold" | "italic" | "underline") => {
+    editorRef.current?.focus();
+    document.execCommand(command);
+    onChange(editorRef.current?.innerHTML ?? "");
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-sm font-medium text-ink-700">Question</label>
+      <div
+        className={cn(
+          "overflow-hidden rounded-lg border border-line-200",
+          error && "border-danger-500",
+        )}
+      >
+        <div className="flex items-center gap-1 border-b border-line-200 bg-line-100/50 px-2 py-1.5">
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => applyFormat("bold")}
+            aria-label="Bold"
+            className="rounded p-1.5 text-ink-700 hover:bg-line-100"
+          >
+            <Bold size={14} />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => applyFormat("italic")}
+            aria-label="Italic"
+            className="rounded p-1.5 text-ink-700 hover:bg-line-100"
+          >
+            <Italic size={14} />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => applyFormat("underline")}
+            aria-label="Underline"
+            className="rounded p-1.5 text-ink-700 hover:bg-line-100"
+          >
+            <Underline size={14} />
+          </button>
+        </div>
+        <div
+          ref={editorRef}
+          contentEditable
+          onInput={(e) => onChange(e.currentTarget.innerHTML)}
+          data-placeholder={placeholder}
+          className="min-h-25 px-4 py-2.5 text-sm text-ink-900 focus:outline-none empty:before:text-ink-300 empty:before:content-[attr(data-placeholder)]"
+        />
+      </div>
+      {error && <p className="text-xs text-danger-500">{error}</p>}
+    </div>
+  );
+}
+
 export default function AddQuestionsPage() {
   const { id: testId } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -204,6 +305,7 @@ export default function AddQuestionsPage() {
     reset,
     watch,
     setValue,
+    control,
     formState: { errors },
   } = useForm<QuestionFormValues>({
     resolver: zodResolver(questionSchema),
@@ -496,11 +598,17 @@ export default function AddQuestionsPage() {
         </div>
 
         <div className="mt-4 flex flex-col gap-4">
-          <Input
-            label="Question"
-            placeholder="Type here"
-            error={errors.question?.message}
-            {...register("question")}
+          <Controller
+            name="question"
+            control={control}
+            render={({ field }) => (
+              <RichTextEditor
+                value={field.value}
+                onChange={field.onChange}
+                placeholder="Type here"
+                error={errors.question?.message}
+              />
+            )}
           />
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

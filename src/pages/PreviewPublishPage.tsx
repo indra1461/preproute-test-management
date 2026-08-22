@@ -90,7 +90,15 @@ export default function PreviewPublishPage() {
             className="rounded-xl border border-line-200 bg-white p-5"
           >
             <p className="text-sm font-medium text-ink-900">
-              {index + 1}. {q.question}
+              {index + 1}.{" "}
+              {/* Safe: `q.question` HTML only ever comes from the admin's own
+                  Bold/Italic/Underline editor on Add Questions — never from an
+                  external/untrusted source. Rendering raw HTML from
+                  untrusted input via dangerouslySetInnerHTML would be an
+                  XSS risk. */}
+              <span
+                dangerouslySetInnerHTML={{ __html: q.question }}
+              />
             </p>
             <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
               {(["option1", "option2", "option3", "option4"] as const).map(
