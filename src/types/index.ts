@@ -59,6 +59,14 @@ export type CreateTestPayload = Omit<Test, "id" | "created_at" | "questions">;
 
 export type UpdateTestPayload = Partial<CreateTestPayload> & {
   questions?: string[];
+  // Scheduling metadata is NOT documented in the API spec — TestStatus
+  // already includes "scheduled"/"expired" from prior real-API testing, so
+  // the concept is backend-supported, but these field names are a best
+  // guess. PreviewPublishPage falls back to `{ status: "scheduled" }` alone
+  // if the backend rejects them.
+  scheduled_at?: string;
+  live_until?: string;
+  custom_live_until?: string;
 };
 
 export type QuestionOptionKey = "option1" | "option2" | "option3" | "option4";

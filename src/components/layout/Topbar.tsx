@@ -58,7 +58,11 @@ export default function Topbar({ onMenuClick }: TopbarProps) {
             onClick={() => setOpen((o) => !o)}
             className="flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-line-100"
           >
-            <div className="h-8 w-8 rounded-full bg-brand-100" />
+            <img
+              src="/img/profile.png"
+              alt=""
+              className="h-8 w-8 rounded-full object-cover"
+            />
             <div className="text-left text-sm leading-tight">
               <p className="font-medium text-ink-900">
                 {(user?.name as string) ?? (user?.userId as string) ?? "Admin"}
