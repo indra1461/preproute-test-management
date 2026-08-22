@@ -1,9 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useNavigate, useParams } from "react-router-dom";
-import { BarChart3, Check, Clock, FileQuestion, Pencil, Trash2 } from "lucide-react";
+import Papa from "papaparse";
+import {
+  BarChart3,
+  Check,
+  Clock,
+  Download,
+  FileQuestion,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import { useGetTestByIdQuery, useUpdateTestMutation } from "@/api/testsApi";
 import {
@@ -60,6 +69,59 @@ const emptyQuestion: QuestionFormValues = {
   topic: "",
   sub_topic: "",
 };
+
+const CORRECT_OPTION_VALUES = [
+  "option1",
+  "option2",
+  "option3",
+  "option4",
+] as const;
+
+// CSV row -> form-shape question. question/option1-4/correct_option required;
+// correct_option must be one of the 4 option keys — anything else, skip the row.
+function parseCsvRow(row: Record<string, string>): QuestionFormValues | null {
+  const question = row.question?.trim();
+  const option1 = row.option1?.trim();
+  const option2 = row.option2?.trim();
+  const option3 = row.option3?.trim();
+  const option4 = row.option4?.trim();
+  const correctOption = row.correct_option?.trim();
+
+  if (!question || !option1 || !option2 || !option3 || !option4) return null;
+  if (
+    !CORRECT_OPTION_VALUES.includes(
+      correctOption as (typeof CORRECT_OPTION_VALUES)[number],
+    )
+  ) {
+    return null;
+  }
+
+  const difficultyRaw = row.difficulty?.trim().toLowerCase();
+  const difficulty =
+    difficultyRaw === "easy" ||
+    difficultyRaw === "medium" ||
+    difficultyRaw === "difficult"
+      ? difficultyRaw
+      : undefined;
+
+  return {
+    question,
+    option1,
+    option2,
+    option3,
+    option4,
+    correct_option: correctOption as (typeof CORRECT_OPTION_VALUES)[number],
+    explanation: row.explanation?.trim() ?? "",
+    difficulty,
+    media_url: "",
+    topic: row.topic?.trim() ?? "",
+    sub_topic: row.sub_topic?.trim() ?? "",
+  };
+}
+
+const SAMPLE_CSV_CONTENT =
+  "question,option1,option2,option3,option4,correct_option,explanation,difficulty,topic,sub_topic\n" +
+  '"What is the capital of France?","London","Paris","Berlin","Madrid","option2","Paris is the capital of France.","easy","",""\n';
 
 export default function AddQuestionsPage() {
   const { id: testId } = useParams<{ id: string }>();
@@ -177,6 +239,71 @@ export default function AddQuestionsPage() {
       setEditingIndex(null);
       reset(emptyQuestion);
     }
+  };
+
+  const csvInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCsvButtonClick = () => {
+    csvInputRef.current?.click();
+  };
+
+  // Client-side only — parsed rows are appended to the same local `questions`
+  // state manual "Add Another Question" writes to, without an `id`, so they
+  // flow through the exact same save/bulk-create logic untouched.
+  const handleCsvFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        if (results.data.length === 0) {
+          toast.error(
+            "Could not parse the CSV file. Please check the format and try again.",
+          );
+          return;
+        }
+
+        const imported: QuestionFormValues[] = [];
+        let skipped = 0;
+        for (const row of results.data) {
+          const parsed = parseCsvRow(row);
+          if (parsed) {
+            imported.push(parsed);
+          } else {
+            skipped += 1;
+          }
+        }
+
+        if (imported.length > 0) {
+          setQuestions((prev) => [...prev, ...imported]);
+        }
+        toast.success(
+          `${imported.length} questions imported, ${skipped} rows skipped (invalid data).`,
+        );
+      },
+      error: () => {
+        toast.error(
+          "Could not parse the CSV file. Please check the format and try again.",
+        );
+      },
+    });
+  };
+
+  const handleDownloadSampleCsv = () => {
+    const blob = new Blob([SAMPLE_CSV_CONTENT], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "questions_sample.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const onSaveAndContinue = async () => {
@@ -337,10 +464,36 @@ export default function AddQuestionsPage() {
       )}
 
       <div className="rounded-xl border border-line-200 bg-white p-6">
-        <h2 className="text-sm font-semibold text-ink-900">
-          Question{" "}
-          {editingIndex !== null ? editingIndex + 1 : questions.length + 1}
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold text-ink-900">
+            Question{" "}
+            {editingIndex !== null ? editingIndex + 1 : questions.length + 1}
+          </h2>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={handleDownloadSampleCsv}
+              className="text-xs font-medium text-brand-600 hover:underline"
+            >
+              Download sample CSV
+            </button>
+            <button
+              type="button"
+              onClick={handleCsvButtonClick}
+              className="flex items-center gap-1.5 rounded-lg border border-line-200 px-3 py-1.5 text-xs font-medium text-ink-700 hover:bg-line-100"
+            >
+              <Download size={14} /> CSV
+            </button>
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleCsvFileChange}
+            />
+          </div>
+        </div>
 
         <div className="mt-4 flex flex-col gap-4">
           <Input
